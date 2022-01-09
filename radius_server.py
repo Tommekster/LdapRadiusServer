@@ -46,7 +46,7 @@ class LdapRadiusServer(server.Server):
             if "User-Password" in pkt.keys() and len(pkt["User-Password"])
             else None
         )
-        logger.info("Authenticate user %s", username)
+        logger.info("Authenticate user '%s'", username)
         user_authenticated = False
         if username and password:
             (success, msg, fullname, groups) =\
@@ -59,7 +59,7 @@ class LdapRadiusServer(server.Server):
                     )
                 else:
                     user_authenticated = True
-                logger.info("Authenticated%s %s",
+                logger.info("Authenticated%s '%s'",
                             "" if user_authenticated else " NOT", fullname)
                 logger.debug("member of %s", repr(groups))
             else:
@@ -98,14 +98,14 @@ if __name__ == '__main__':
     config.read("radius_ldap_server.cfg")
     authenticator = LdapAuthenticator(
         config["LDAP"]["ServerAddress"],
-        config["LDAP"]["DCRoot"],
+        config["LDAP"].get("DCRoot", None),
         float(config["LDAP"]["Timeout"])
     )
     user_groups = [g for g in config["LDAP"]["UserGroups"].split(",") if g]
-    logger.debug("Enabled user groups: %s", user_groups)
+    logger.debug("Enabled user groups: %s", repr(user_groups))
     # create server and read dictionary
     radius_dictionary = config["Radius"]["Dictionary"]
-    logger.debug("Radius dictionary: %s", radius_dictionary)
+    logger.debug("Radius dictionary: '%s'", radius_dictionary)
     addresses = config["Radius"]["Addresses"].split(",")
     logger.debug("Radius addresses: %s", repr(addresses))
     port = int(config["Radius"]["Port"])
