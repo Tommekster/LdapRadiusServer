@@ -64,7 +64,7 @@ class LdapAuthenticator:
             conn.unbind_s()
 
     def __initialize_connection__(self) -> LDAPObject:
-        logger.info("Contacting '%s'", self.server_address)
+        logger.debug("Connecting ldap '%s'", self.server_address)
         conn = ldap.initialize(self.server_address)
         conn.protocol_version = 3
         conn.set_option(ldap.OPT_REFERRALS, 0)
@@ -101,13 +101,13 @@ class LdapAuthenticator:
             if "name" in user_info and len(user_info["name"])
             else "N/A"
         )
-        logger.info("Found user '%s'", user_fullname)
+        logger.debug("Found user '%s'", user_fullname)
         member_of = (
             [x.decode() for x in user_info["memberOf"]]
             if "memberOf" in user_info
             else []
         )
-        logger.info("Member of %s", repr(member_of))
+        logger.debug("Member of %s", repr(member_of))
         return user_fullname, member_of
 
     def __handle_ldap_error__(self, e: ldap.LDAPError) -> Tuple[bool, str, None, None]:

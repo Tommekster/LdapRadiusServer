@@ -36,6 +36,9 @@ class LdapRadiusServer(server.Server):
 
     def HandleAuthPacket(self, pkt: packet.AuthPacket):
         logger.info("Received an authentication request")
+        logger.debug("from '%s'", pkt.source[0])
+        remote_host = self.__get_remote_host__(pkt)
+        logger.debug("remote host '%s'", getattr(remote_host, "name", "N/A"))
         logger.debug("Attributes: ")
         for attr in pkt.keys():
             logger.debug("\t%s: %s", attr, pkt[attr])
@@ -55,8 +58,7 @@ class LdapRadiusServer(server.Server):
             (success, msg, fullname, member_of) =\
                 self.ldap.authenticate(username, password)
             if success:
-                remote_host = self.__get_remote_host__(pkt)
-                user_groups = repr(getattr(remote_host, "groups", []))
+                user_groups = getattr(remote_host, "groups", [])
                 if len(user_groups):
                     user_authenticated = any(
                         any(m.startswith(f"CN={g},") for m in member_of)
