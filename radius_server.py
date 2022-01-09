@@ -125,14 +125,14 @@ if __name__ == '__main__':
     authenticator = LdapAuthenticator(
         config["LDAP"]["ServerAddress"],
         config["LDAP"].get("DCRoot", None),
-        float(config["LDAP"]["Timeout"])
+        float(config["LDAP"].get("Timeout", "10.0"))
     )
     # create server and read dictionary
     radius_dictionary = config["Radius"]["Dictionary"]
     logger.debug("Radius dictionary: '%s'", radius_dictionary)
-    addresses = config["Radius"]["Addresses"].split(",")
+    addresses = config["Radius"].get("Addresses", "0.0.0.0").split(",")
     logger.debug("Radius addresses: %s", repr(addresses))
-    port = int(config["Radius"]["Port"])
+    port = int(config["Radius"].get("Port", 1812))
     logger.debug("Radius port: %s", port)
     srv = LdapRadiusServer(
         authenticator,
@@ -145,7 +145,11 @@ if __name__ == '__main__':
         client_config = config[f"Radius_{client_name}"]
         client_address = client_config["Address"]
         client_secret = client_config["Secret"]
-        user_groups = [g for g in client_config["UserGroups"].split(",") if g]
+        user_groups = [
+            g for g in
+            client_config.get("UserGroups", "").split(",")
+            if g
+        ]
         srv.hosts[client_address] = RemoteHost(
             client_address,
             client_secret.encode(),
