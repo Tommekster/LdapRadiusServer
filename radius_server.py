@@ -11,6 +11,12 @@ logging.config.fileConfig("logging.conf", disable_existing_loggers=False)
 logger = logging.getLogger("radius_server")
 
 
+class RemoteHost(server.RemoteHost):
+    def __init__(self, address, secret, name, groups):
+        super().__init__(address, secret, name)
+        self.groups = groups or []
+
+
 class LdapRadiusServer(server.Server):
     def __init__(self, ldapAuthenticator: LdapAuthenticator, user_groups=[], addresses=[], authport=1812, hosts=None, dict=None):
         super().__init__(
@@ -27,9 +33,6 @@ class LdapRadiusServer(server.Server):
             msg = "Missing LDAP authenticator"
             logger.critical(msg)
             raise ValueError(msg)
-        self.user_groups = user_groups
-        if not len(self.user_groups):
-            logger.warning("User groups are not set!")
 
     def HandleAuthPacket(self, pkt: packet.AuthPacket):
         logger.info("Received an authentication request")
@@ -49,19 +52,24 @@ class LdapRadiusServer(server.Server):
         logger.info("Authenticate user '%s'", username)
         user_authenticated = False
         if username and password:
-            (success, msg, fullname, groups) =\
+            (success, msg, fullname, member_of) =\
                 self.ldap.authenticate(username, password)
             if success:
-                if len(self.user_groups):
+                remote_host = self.__get_remote_host__(pkt)
+                user_groups = repr(getattr(remote_host, "groups", []))
+                if len(user_groups):
                     user_authenticated = any(
-                        any(m.startswith(f"CN={g},") for m in groups)
-                        for g in self.user_groups
+                        any(m.startswith(f"CN={g},") for m in member_of)
+                        for g in user_groups
                     )
                 else:
                     user_authenticated = True
-                logger.info("Authenticated%s '%s'",
-                            "" if user_authenticated else " NOT", fullname)
-                logger.debug("member of %s", repr(groups))
+                logger.info(
+                    "Authenticated%s '%s'",
+                    "" if user_authenticated else " NOT",
+                    fullname
+                )
+                logger.debug("member of %s", repr(member_of))
             else:
                 logger.error(msg)
         else:
@@ -86,11 +94,29 @@ class LdapRadiusServer(server.Server):
         return super().BindToAddress(addr)
 
     def Run(self):
-        logger.info("RADIUS Clients:")
-        for k, v in self.hosts.items():
-            logger.info("\t%s: %s", k, getattr(v, "name", "N/A"))
+        self.__dump_clients__()
         logger.info("LDAP-Radius server started...")
         return super().Run()
+
+    def __dump_clients__(self):
+        logger.info("RADIUS Clients:")
+        for address, client in self.hosts.items():
+            name = getattr(client, "name", "N/A")
+            logger.info("\t'%s':", name)
+            logger.info("\t\tAddress: '%s'", address)
+            groups = getattr(client, "groups", [])
+            logger.info("\t\tUser groups: %s", repr(groups))
+            if not len(groups):
+                logger.warning(
+                    "Client '%s' on '%s' accepts any user group!", name, address)
+
+    def __get_remote_host__(self, pkt: packet.Packet) -> RemoteHost:
+        if pkt.source[0] in self.hosts:
+            return self.hosts[pkt.source[0]]
+        elif '0.0.0.0' in self.hosts:
+            return self.hosts['0.0.0.0']
+        else:
+            raise server.ServerPacketError('Received packet from unknown host')
 
 
 if __name__ == '__main__':
@@ -101,8 +127,6 @@ if __name__ == '__main__':
         config["LDAP"].get("DCRoot", None),
         float(config["LDAP"]["Timeout"])
     )
-    user_groups = [g for g in config["LDAP"]["UserGroups"].split(",") if g]
-    logger.debug("Enabled user groups: %s", repr(user_groups))
     # create server and read dictionary
     radius_dictionary = config["Radius"]["Dictionary"]
     logger.debug("Radius dictionary: '%s'", radius_dictionary)
@@ -113,18 +137,20 @@ if __name__ == '__main__':
     srv = LdapRadiusServer(
         authenticator,
         authport=port,
-        user_groups=user_groups,
         dict=dictionary.Dictionary(radius_dictionary)
     )
 
     # add clients (address, secret, name)
     for client_name in config["Radius"]["Clients"].split(","):
-        client_address = config[f"Radius_{client_name}"]["Address"]
-        client_secret = config[f"Radius_{client_name}"]["Secret"]
-        srv.hosts[client_address] = server.RemoteHost(
+        client_config = config[f"Radius_{client_name}"]
+        client_address = client_config["Address"]
+        client_secret = client_config["Secret"]
+        user_groups = [g for g in client_config["UserGroups"].split(",") if g]
+        srv.hosts[client_address] = RemoteHost(
             client_address,
             client_secret.encode(),
-            client_name
+            client_name,
+            user_groups
         )
 
     for address in addresses:
