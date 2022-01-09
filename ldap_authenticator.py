@@ -8,15 +8,19 @@ logger = logging.getLogger(__name__)
 
 
 class LdapAuthenticator:
-    def __init__(self, server_address: str, dc_root: str) -> None:
+    def __init__(self, server_address: str, dc_root: str, timeout: float = None) -> None:
         """
         Parameters:
             server_address : ldap://mydomain.org OR ldap://10.0.0.1
             dc_root        : dc=mydomain,dc=org
+            timeout = None : 10.0 (in seconds)
         """
+        logger.debug("Server address: %s", server_address)
         self.server_address = server_address
+        logger.debug("DC Root: %s", dc_root)
         self.dc_root = dc_root
-        pass
+        logger.debug("Timeout: %s", timeout)
+        self.timeout = timeout
 
     def authenticate(self, username: str, password: str):
         """
@@ -33,6 +37,9 @@ class LdapAuthenticator:
         conn = ldap.initialize(self.server_address)
         conn.protocol_version = 3
         conn.set_option(ldap.OPT_REFERRALS, 0)
+        if self.timeout:
+            conn.set_option(ldap.OPT_NETWORK_TIMEOUT, self.timeout)
+
         try:
             logger.info("Verify user: %s", username)
             conn.simple_bind_s(username, password)

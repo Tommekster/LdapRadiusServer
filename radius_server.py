@@ -1,16 +1,12 @@
 #!/usr/bin/python
 from __future__ import print_function
-from pyrad import dictionary, packet, server
-import logging
+import configparser
 import logging.config
+import logging
+from pyrad import dictionary, packet, server
 from ldap_authenticator import LdapAuthenticator
 
-logging.config.fileConfig("logging.conf")
-# logging.basicConfig(
-#    # filename="pyrad.log",
-#    level="DEBUG",
-#    format="%(asctime)s [%(levelname)-8s] %(message)s"
-# )
+logging.config.fileConfig("logging.conf", disable_existing_loggers=False)
 
 logger = logging.getLogger("radius_server")
 
@@ -27,6 +23,10 @@ class LdapRadiusServer(server.Server):
             coa_enabled=False
         )
         self.ldap = ldapAuthenticator
+        if not self.ldap:
+            msg = "Missing LDAP authenticator"
+            logger.critical(msg)
+            raise ValueError(msg)
 
     def HandleAuthPacket(self, pkt: packet.AuthPacket):
         logger.info("Received an authentication request")
@@ -47,8 +47,7 @@ class LdapRadiusServer(server.Server):
         user_authenticated = False
         if username and password:
             (success, msg, fullname, groups) =\
-                (True, "Succ", "FN", ["VPN"])
-            #self.ldap.authenticate(username, password)
+                self.ldap.authenticate(username, password)
             if success:
                 logger.info("Authenticated %s", fullname)
                 logger.debug("member of %s", repr(groups))
@@ -80,24 +79,43 @@ class LdapRadiusServer(server.Server):
         logger.info("RADIUS Clients:")
         for k, v in self.hosts.items():
             logger.info("\t%s: %s", k, getattr(v, "name", "N/A"))
-        logger.info("server started")
+        logger.info("LDAP-Radius server started...")
         return super().Run()
 
 
 if __name__ == '__main__':
-
+    config = configparser.ConfigParser()
+    config.read("radius_ldap_server.cfg")
+    authenticator = LdapAuthenticator(
+        config["LDAP"]["ServerAddress"],
+        config["LDAP"]["DCRoot"],
+        float(config["LDAP"]["Timeout"])
+    )
     # create server and read dictionary
+    radius_dictionary = config["Radius"]["Dictionary"]
+    logger.debug("Radius dictionary: %s", radius_dictionary)
+    addresses = config["Radius"]["Addresses"].split(",")
+    logger.debug("Radius addresses: %s", repr(addresses))
+    port = int(config["Radius"]["Port"])
+    logger.debug("Radius port: %s", port)
     srv = LdapRadiusServer(
-        None, dict=dictionary.Dictionary("radius_dictionary")
+        authenticator,
+        authport=port,
+        dict=dictionary.Dictionary(radius_dictionary)
     )
 
     # add clients (address, secret, name)
-    srv.hosts["0.0.0.0"] = server.RemoteHost(
-        "0.0.0.0",
-        b"Kah3choteereethiejeimaeziecumi",
-        "localhost"
-    )
-    srv.BindToAddress("0.0.0.0")
+    for client_name in config["Radius"]["Clients"].split(","):
+        client_address = config[f"Radius_{client_name}"]["Address"]
+        client_secret = config[f"Radius_{client_name}"]["Secret"]
+        srv.hosts[client_address] = server.RemoteHost(
+            client_address,
+            client_secret.encode(),
+            client_name
+        )
+
+    for address in addresses:
+        srv.BindToAddress(address)
 
     # start server
     srv.Run()
