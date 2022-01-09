@@ -12,7 +12,7 @@ logger = logging.getLogger("radius_server")
 
 
 class LdapRadiusServer(server.Server):
-    def __init__(self, ldapAuthenticator: LdapAuthenticator, addresses=[], authport=1812, hosts=None, dict=None):
+    def __init__(self, ldapAuthenticator: LdapAuthenticator, user_groups=[], addresses=[], authport=1812, hosts=None, dict=None):
         super().__init__(
             addresses=addresses,
             authport=authport,
@@ -27,6 +27,9 @@ class LdapRadiusServer(server.Server):
             msg = "Missing LDAP authenticator"
             logger.critical(msg)
             raise ValueError(msg)
+        self.user_groups = user_groups
+        if not len(self.user_groups):
+            logger.warning("User groups are not set!")
 
     def HandleAuthPacket(self, pkt: packet.AuthPacket):
         logger.info("Received an authentication request")
@@ -49,9 +52,16 @@ class LdapRadiusServer(server.Server):
             (success, msg, fullname, groups) =\
                 self.ldap.authenticate(username, password)
             if success:
-                logger.info("Authenticated %s", fullname)
+                if len(self.user_groups):
+                    user_authenticated = any(
+                        any(m.startswith(f"CN={g},") for m in groups)
+                        for g in self.user_groups
+                    )
+                else:
+                    user_authenticated = True
+                logger.info("Authenticated%s %s",
+                            "" if user_authenticated else " NOT", fullname)
                 logger.debug("member of %s", repr(groups))
-                user_authenticated = True
             else:
                 logger.error(msg)
         else:
@@ -91,6 +101,8 @@ if __name__ == '__main__':
         config["LDAP"]["DCRoot"],
         float(config["LDAP"]["Timeout"])
     )
+    user_groups = config["LDAP"]["UserGroups"].split(",")
+    logger.debug("Enabled user groups: %s", user_groups)
     # create server and read dictionary
     radius_dictionary = config["Radius"]["Dictionary"]
     logger.debug("Radius dictionary: %s", radius_dictionary)
@@ -101,6 +113,7 @@ if __name__ == '__main__':
     srv = LdapRadiusServer(
         authenticator,
         authport=port,
+        user_groups=user_groups,
         dict=dictionary.Dictionary(radius_dictionary)
     )
 
