@@ -101,7 +101,7 @@ if __name__ == '__main__':
         config["LDAP"]["DCRoot"],
         float(config["LDAP"]["Timeout"])
     )
-    user_groups = config["LDAP"]["UserGroups"].split(",")
+    user_groups = [g for g in config["LDAP"]["UserGroups"].split(",") if g]
     logger.debug("Enabled user groups: %s", user_groups)
     # create server and read dictionary
     radius_dictionary = config["Radius"]["Dictionary"]
